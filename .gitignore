@@ -1,0 +1,17 @@
+/target
+*.log
+.DS_Store
+
+# Added entries (9 items)
+target/
+bin/
+dist/
+build/
+tmp/
+src/tmp*
+*.exe
+PLAN.md
+*sublime*
+
+# Ignore Sublime Text project files
+*.sublime-*

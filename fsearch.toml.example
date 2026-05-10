@@ -1,0 +1,36 @@
+# fsearch configuration
+# Copy to ~/.config/fsearch/config.toml  OR  ./fsearch.toml (project-local override)
+# Run `fsearch --init-config` to write this file automatically.
+#
+# All values shown are defaults. Remove the leading '#' on any line to override.
+
+# ── Search behaviour ───────────────────────────────────────────────────────────
+# default_depth      = 1       # default -d / --deep value
+# default_method     = 1       # 1 = walkdir+rayon (fast), 2 = recursive
+# case_insensitive   = true
+# include_dirs       = true    # include directory entries in filename searches
+# binary_check_bytes = 1024    # bytes read to detect binary files
+# max_line_length    = 10000   # lines longer than this are skipped in content search
+# threads            = 0       # Rayon threads; 0 = all logical CPUs
+
+# ── Output ─────────────────────────────────────────────────────────────────────
+# verbose      = false   # show status messages and timing
+# show_size    = false   # show file sizes  (reserved)
+# show_modified = false  # show last-modified timestamps (reserved)
+# max_results  = 0       # 0 = unlimited; override with -n
+
+# ── Colours (true-colour hex "#RRGGBB") ───────────────────────────────────────
+# color_index    = "#FF88FF"   # result index number
+# color_path     = "#FFFF00"   # matched file path
+# color_line_num = "#FF4444"   # line number in content search
+# color_line_text = "#00FFFF"  # matched line text
+# color_header   = "#FFFFFF"   # "FOUND:" header
+# color_count    = "#00FFFF"   # result count
+# color_error    = "#FF3333"   # error messages
+# color_warn     = "#FFAA00"   # warnings
+# color_info     = "#00FF88"   # info / verbose messages
+# color_pattern  = "#FF00FF"   # search pattern highlight
+
+# ── Default filters ────────────────────────────────────────────────────────────
+# exclude_dirs    = ".git,node_modules,.svn,__pycache__,.hg,target,.cache"
+# default_include = ""   # e.g. "*.py,*.rs"  to always limit by extension

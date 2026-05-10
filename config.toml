@@ -1,0 +1,17 @@
+# Cross-compilation linker configuration.
+# Uncomment the relevant section for your platform when cross-compiling.
+
+# ── Linux → Windows (requires: sudo apt install gcc-mingw-w64-x86-64) ─────────
+# [target.x86_64-pc-windows-gnu]
+# linker = "x86_64-w64-mingw32-gcc"
+# ar     = "x86_64-w64-mingw32-ar"
+
+# ── Linux → macOS (requires: osxcross toolchain) ──────────────────────────────
+# [target.x86_64-apple-darwin]
+# linker = "x86_64-apple-darwin21.4-clang"
+# ar     = "x86_64-apple-darwin21.4-ar"
+
+# ── Linux → Linux ARM64 (requires: sudo apt install gcc-aarch64-linux-gnu) ────
+# [target.aarch64-unknown-linux-gnu]
+# linker = "aarch64-linux-gnu-gcc"
+# ar     = "aarch64-linux-gnu-ar"
