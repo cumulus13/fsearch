@@ -1,6 +1,6 @@
 # fsearch configuration
 # Copy to ~/.config/fsearch/config.toml  OR  ./fsearch.toml (project-local override)
-# Run `fsearch --init-config` to write this file automatically.
+# Run `fsearch config init` to generate this file automatically.
 #
 # All values shown are defaults. Remove the leading '#' on any line to override.
 
@@ -8,10 +8,16 @@
 # default_depth      = 1       # default -d / --deep value
 # default_method     = 1       # 1 = walkdir+rayon (fast), 2 = recursive
 # case_insensitive   = true
-# include_dirs       = true    # include directory entries in filename searches
-# binary_check_bytes = 1024    # bytes read to detect binary files
-# max_line_length    = 10000   # lines longer than this are skipped in content search
-# threads            = 0       # Rayon threads; 0 = all logical CPUs
+# include_dirs       = true
+# binary_check_bytes = 1024
+# max_line_length    = 10000
+# threads            = 0       # 0 = all logical CPUs
+
+# ── Duplicate detection ────────────────────────────────────────────────────────
+# hash_algorithm   = "sha256"  # "md5" or "sha256"
+# hash_buffer_size = 65536     # read buffer in bytes (64 KiB default)
+# dup_min_size     = 1         # skip files smaller than this (bytes)
+# dup_max_size     = 0         # skip files larger than this (0 = no limit)
 
 # ── Output ─────────────────────────────────────────────────────────────────────
 # verbose      = false   # show status messages and timing
@@ -19,7 +25,7 @@
 # show_modified = false  # show last-modified timestamps (reserved)
 # max_results  = 0       # 0 = unlimited; override with -n
 
-# ── Colours (true-colour hex "#RRGGBB") ───────────────────────────────────────
+# ── Colours (true-colour "#RRGGBB") ───────────────────────────────────────────
 # color_index    = "#FF88FF"   # result index number
 # color_path     = "#FFFF00"   # matched file path
 # color_line_num = "#FF4444"   # line number in content search
@@ -30,6 +36,9 @@
 # color_warn     = "#FFAA00"   # warnings
 # color_info     = "#00FF88"   # info / verbose messages
 # color_pattern  = "#FF00FF"   # search pattern highlight
+# color_dup_group = "#FF8800"
+# color_dup_path  = "#FFFF00"
+# color_dup_size  = "#88FF88"
 
 # ── Default filters ────────────────────────────────────────────────────────────
 # exclude_dirs    = ".git,node_modules,.svn,__pycache__,.hg,target,.cache"

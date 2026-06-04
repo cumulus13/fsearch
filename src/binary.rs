@@ -1,7 +1,7 @@
 // File: src\binary.rs
 // Author: Hadi Cahyadi <cumulus13@gmail.com>
 // Date: 2026-05-11
-// Description: 
+// Description:
 // License: MIT
 
 use std::fs::File;

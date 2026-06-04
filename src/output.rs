@@ -1,11 +1,14 @@
 // File: src\output.rs
 // Author: Hadi Cahyadi <cumulus13@gmail.com>
 // Date: 2026-05-11
-// Description: 
+// Description:
 // License: MIT
+
+//! Coloured terminal output for both search and duplicate results.
 
 use crate::colors::{bold_hex, hex_color};
 use crate::config::Config;
+use crate::duplicates::{DuplicateGroup, DuplicateSummary};
 use crate::searcher::SearchMatch;
 use colored::Colorize;
 use std::time::Duration;
@@ -18,6 +21,8 @@ impl<'a> Printer<'a> {
     pub fn new(cfg: &'a Config) -> Self {
         Self { cfg }
     }
+
+    // ── Banner / status ───────────────────────────────────────────────────────
 
     pub fn print_banner(&self) {
         eprintln!(
@@ -35,6 +40,17 @@ impl<'a> Printer<'a> {
         );
     }
 
+    pub fn print_scanning_dups(&self, dir: &str, mode: &str, algo: &str) {
+        eprintln!(
+            "🔎 Scanning {} for duplicates  [mode: {}  algo: {}]",
+            bold_hex(dir, &self.cfg.color_path),
+            bold_hex(mode, &self.cfg.color_pattern),
+            bold_hex(algo, &self.cfg.color_info),
+        );
+    }
+
+    // ── Search results ────────────────────────────────────────────────────────
+
     pub fn print_results(
         &self,
         results: &[SearchMatch],
@@ -49,37 +65,37 @@ impl<'a> Printer<'a> {
             return;
         }
 
-        let count_str = results.len().to_string();
+        let count = results.len().to_string();
         let ms = elapsed.as_millis();
 
         println!(
             "\n{} {}  {} {} {}",
             "📋".bold(),
             bold_hex("FOUND:", &self.cfg.color_header),
-            bold_hex(&count_str, &self.cfg.color_count),
+            bold_hex(&count, &self.cfg.color_count),
             hex_color("result(s)", &self.cfg.color_info),
             hex_color(format!("[{ms}ms]"), "#888888"),
         );
         println!();
 
-        let zfill = count_str.len();
-
+        let zfill = count.len();
         for (idx, item) in results.iter().enumerate() {
-            let num = format!("{:0>width$}", idx + 1, width = zfill);
-            let num_str = bold_hex(&num, &self.cfg.color_index);
-
+            let num = bold_hex(
+                format!("{:0>w$}", idx + 1, w = zfill),
+                &self.cfg.color_index,
+            );
             match item {
                 SearchMatch::Path(path) => {
                     println!(
                         "{}. {}",
-                        num_str,
+                        num,
                         bold_hex(path.display().to_string(), &self.cfg.color_path)
                     );
                 }
                 SearchMatch::Content { path, lines } => {
                     println!(
                         "{}. {}",
-                        num_str,
+                        num,
                         bold_hex(path.display().to_string(), &self.cfg.color_path)
                     );
                     for (line_num, line_text) in lines {
@@ -95,6 +111,84 @@ impl<'a> Printer<'a> {
         }
         println!();
     }
+
+    // ── Duplicate results ─────────────────────────────────────────────────────
+
+    pub fn print_duplicates(
+        &self,
+        groups: &[DuplicateGroup],
+        summary: &DuplicateSummary,
+        elapsed: Duration,
+    ) {
+        let ms = elapsed.as_millis();
+
+        if groups.is_empty() {
+            println!(
+                "\n✅  {} {}\n",
+                bold_hex("No duplicates found.", &self.cfg.color_info),
+                hex_color(format!("[{ms}ms]"), "#888888"),
+            );
+            self.print_dup_summary(summary);
+            return;
+        }
+
+        println!(
+            "\n{} {}  {} {} {}",
+            "🔁".bold(),
+            bold_hex("DUPLICATE GROUPS:", &self.cfg.color_header),
+            bold_hex(groups.len().to_string(), &self.cfg.color_count),
+            hex_color("group(s)", &self.cfg.color_info),
+            hex_color(format!("[{ms}ms]"), "#888888"),
+        );
+        println!();
+
+        let zfill = groups.len().to_string().len();
+        for (idx, group) in groups.iter().enumerate() {
+            let num = bold_hex(
+                format!("{:0>w$}", idx + 1, w = zfill),
+                &self.cfg.color_dup_group,
+            );
+
+            // Group header line
+            println!(
+                "{}. {} {}  {} {}  {} {}",
+                num,
+                hex_color("size:", "#888888"),
+                bold_hex(group.size_human(), &self.cfg.color_dup_size),
+                hex_color("wasted:", "#888888"),
+                bold_hex(group.wasted_human(), &self.cfg.color_warn),
+                hex_color("hash:", "#888888"),
+                hex_color(&group.hash[..group.hash.len().min(16)], "#666666"),
+            );
+
+            // Individual paths
+            for (pi, path) in group.paths.iter().enumerate() {
+                let marker = if pi == 0 { "  ◉" } else { "  ○" };
+                println!(
+                    "{}  {}",
+                    hex_color(marker, &self.cfg.color_dup_group),
+                    hex_color(path.display().to_string(), &self.cfg.color_dup_path),
+                );
+            }
+            println!();
+        }
+
+        self.print_dup_summary(summary);
+    }
+
+    fn print_dup_summary(&self, s: &DuplicateSummary) {
+        println!(
+            "{}  scanned {} files  ·  {} duplicate groups  ·  {} duplicate files  ·  {} wasted",
+            bold_hex("📊 Summary:", &self.cfg.color_header),
+            bold_hex(s.files_scanned.to_string(), &self.cfg.color_count),
+            bold_hex(s.groups_found.to_string(), &self.cfg.color_count),
+            bold_hex(s.duplicate_files.to_string(), &self.cfg.color_count),
+            bold_hex(s.wasted_human(), &self.cfg.color_warn),
+        );
+        println!();
+    }
+
+    // ── Diagnostics ───────────────────────────────────────────────────────────
 
     pub fn print_error(&self, msg: &str) {
         eprintln!("❌ {} {}", bold_hex("Error:", &self.cfg.color_error), msg);

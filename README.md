@@ -1,21 +1,24 @@
-# ⚡ fsearch — Fast File & Content Search
+# ⚡ fsearch — Fast File Search & Duplicate Finder
 
 [![Crates.io](https://img.shields.io/crates/v/fast-search.svg)](https://crates.io/crates/fast-search)
+[![docs.rs](https://docs.rs/fast-search/badge.svg)](https://docs.rs/fast-search)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-orange.svg)](https://www.rust-lang.org)
 [![CI](https://github.com/cumulus13/fsearch/actions/workflows/ci.yml/badge.svg)](https://github.com/cumulus13/fsearch/actions)
 
-A **blazingly fast**, production-ready, cross-platform CLI tool for searching
-files and file contents — written in Rust.
+A blazingly fast, cross-platform **library and CLI tool** for:
+- 🔍 Searching files by name (glob) or content (in-file grep)
+- 🔁 Finding duplicate files — by content hash, name, or size
 
 ---
 
-## 🚀 Features
+## 📦 Features
 
 | Feature | Detail |
 |---------|--------|
 | ⚡ Two search engines | Method 1: parallel `walkdir` + `rayon`; Method 2: deterministic recursive |
 | 📄 Content search | grep-style search inside files with line numbers |
+| 🔁 Finding duplicate files — by content hash, name, or size |
 | 🎨 True-colour output | Every colour is a configurable `#RRGGBB` hex value |
 | 🔍 Glob patterns | `*` and `?` wildcards for file names and `-i` filters |
 | 📁 Depth control | Limit recursion with `-d` |
@@ -29,10 +32,18 @@ files and file contents — written in Rust.
 
 ## 📦 Installation
 
-### From crates.io
+### CLI binary
 
 ```bash
 cargo install fast-search
+```
+
+### Library dependency
+
+```toml
+# Cargo.toml
+[dependencies]
+fast-search = "1.1"
 ```
 
 ### Pre-built binaries
@@ -62,7 +73,47 @@ cargo build --release
 ## 🔧 Usage
 
 ```
-fsearch [OPTIONS] [PATTERN]
+fsearch <SUBCOMMAND> [OPTIONS]
+
+Subcommands:
+  find    🔍 Search files by name or content
+  dup     🔁 Find duplicate files
+  config  ⚙️  Configuration helpers
+```
+
+### `fsearch find`
+
+```bash
+# Find all Rust files (depth 5)
+fsearch find '*.rs' -d 5
+
+# Search file contents for "TODO" in Python/TS files
+fsearch find TODO -f -i '*.py,*.ts' -d 10
+
+# Case-sensitive name search
+fsearch find README -C -d 3
+
+# Search in a specific directory, verbose
+fsearch find config -p ~/projects -d 3 -v
+```
+
+### `fsearch dup`
+
+```bash
+# Content duplicates (default — exact byte match via SHA-256)
+fsearch dup ~/Downloads -d 5
+
+# Same filename in different directories
+fsearch dup . --mode name -d 10
+
+# Same size (fast but imprecise)
+fsearch dup . --mode size
+
+# Use MD5, only images, files >= 100 KiB
+fsearch dup ~/Photos --algo md5 -i '*.jpg,*.png' --min-size 102400
+
+# Skip binary files, limit to 20 groups
+fsearch dup . --skip-binary -n 20
 ```
 
 ### Options
@@ -114,13 +165,110 @@ fsearch --init-config
 fsearch --show-config
 ```
 
+### `fsearch config`
+
+```bash
+fsearch config init    # write ~/.config/fsearch/config.toml
+fsearch config show    # print active config as TOML
+fsearch config path    # print config file location
+```
+
 ---
+
+## 📚 Library usage
+
+Add to `Cargo.toml`:
+
+```toml
+[dependencies]
+fast-search = "1.1"
+```
+
+### File search
+
+```rust
+use fsearch::searcher::{fast_find, SearchOptions};
+use std::sync::{Arc, atomic::AtomicBool};
+
+let opts = SearchOptions::builder("*.rs")
+    .base_dir("./src")
+    .max_depth(5)
+    .case_insensitive(true)
+    .build();
+
+let interrupted = Arc::new(AtomicBool::new(false));
+let results = fast_find(&opts, interrupted)?;
+for m in &results {
+    println!("{}", m.path().display());
+}
+```
+
+### Content search
+
+```rust
+use fsearch::searcher::{fast_find, SearchOptions};
+use fsearch::searcher::SearchMatch;
+use std::sync::{Arc, atomic::AtomicBool};
+
+let opts = SearchOptions::builder("TODO")
+    .base_dir(".")
+    .max_depth(10)
+    .search_in_files(true)
+    .include_patterns(vec!["*.rs".into()])
+    .build();
+
+let interrupted = Arc::new(AtomicBool::new(false));
+let results = fast_find(&opts, Arc::clone(&interrupted))?;
+
+for m in &results {
+    if let SearchMatch::Content { path, lines } = m {
+        for (line_num, text) in lines {
+            println!("{}:{} {}", path.display(), line_num, text);
+        }
+    }
+}
+```
+
+### Duplicate detection
+
+```rust
+use fsearch::duplicates::{find_duplicates, DuplicateOptions, DuplicateMode, HashAlgorithm};
+use std::sync::{Arc, atomic::AtomicBool};
+
+let opts = DuplicateOptions::builder(".")
+    .max_depth(10)
+    .mode(DuplicateMode::Content)
+    .algorithm(HashAlgorithm::Sha256)
+    .min_size(1024)           // skip files < 1 KiB
+    .skip_binary(false)
+    .build();
+
+let interrupted = Arc::new(AtomicBool::new(false));
+let (groups, summary) = find_duplicates(&opts, interrupted)?;
+
+println!("{} groups · {} wasted",
+    summary.groups_found,
+    summary.wasted_human());
+
+for group in &groups {
+    println!("\n[{}] {} × {}",
+        &group.hash[..16], group.paths.len(), group.size_human());
+    for p in &group.paths {
+        println!("  {}", p.display());
+    }
+}
+```
+
+---
+
 
 ## ⚙️ Configuration
 
 ```bash
-fsearch --init-config
-# → ~/.config/fsearch/config.toml  (fully annotated)
+fsearch config init    # write ~/.config/fsearch/config.toml
+fsearch config show    # print active config as TOML
+fsearch config path    # print config file location
+# → ~/.config/fsearch/config.toml
 ```
 
 Config lookup order (highest priority first):
@@ -128,6 +276,10 @@ Config lookup order (highest priority first):
 1. `./fsearch.toml` — project-local override
 2. `~/.config/fsearch/config.toml` — user config
 3. Built-in defaults
+
+See `fsearch.toml.example` for all available keys with documentation.
+
+---
 
 ### All config keys
 
@@ -194,10 +346,9 @@ Or simply push a version tag — GitHub Actions builds all platforms automatical
 
 ## 🤝 Contributing
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feat/my-feature`)
-3. Make your changes and ensure `cargo clippy -- -D warnings` passes
-4. Submit a pull request
+1. Fork & create a feature branch
+2. Ensure `cargo clippy -- -D warnings` and `cargo test` both pass
+3. Open a pull request
 
 ---
 

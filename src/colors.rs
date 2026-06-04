@@ -1,7 +1,7 @@
 // File: src\colors.rs
 // Author: Hadi Cahyadi <cumulus13@gmail.com>
 // Date: 2026-05-11
-// Description: 
+// Description:
 // License: MIT
 
 use colored::{Color, ColoredString, Colorize};
@@ -35,6 +35,6 @@ pub fn bold_hex<S: AsRef<str>>(text: S, hex: &str) -> ColoredString {
 
 /// Apply underline + hex colour (accent / emphasis variant).
 #[allow(dead_code)]
-pub fn bright_hex<S: AsRef<str>>(text: S, hex: &str) -> ColoredString {
+pub fn underline_hex<S: AsRef<str>>(text: S, hex: &str) -> ColoredString {
     text.as_ref().color(hex_to_color(hex)).underline()
 }
