@@ -1,11 +1,9 @@
 //! # fsearch
 //!
-//! A blazingly fast, cross-platform library for file search and duplicate
-//! detection.
+//! A blazingly fast, cross-platform library for **file search** and
+//! **duplicate detection**, supporting multiple root directories.
 //!
-//! ## Quick start
-//!
-//! ### File search
+//! ## File search — single directory
 //! ```no_run
 //! use fsearch::searcher::{fast_find, SearchOptions};
 //! use std::sync::{Arc, atomic::AtomicBool};
@@ -13,47 +11,40 @@
 //! let opts = SearchOptions::builder("*.rs")
 //!     .base_dir("./src")
 //!     .max_depth(5)
-//!     .case_insensitive(true)
 //!     .build();
 //!
-//! let interrupted = Arc::new(AtomicBool::new(false));
-//! let results = fast_find(&opts, interrupted).unwrap();
-//! for m in &results {
-//!     println!("{}", m.path().display());
-//! }
+//! let results = fast_find(&opts, Arc::new(AtomicBool::new(false))).unwrap();
+//! for m in &results { println!("{}", m.path().display()); }
 //! ```
 //!
-//! ### Content search
+//! ## File search — multiple directories
 //! ```no_run
 //! use fsearch::searcher::{fast_find, SearchOptions};
 //! use std::sync::{Arc, atomic::AtomicBool};
 //!
 //! let opts = SearchOptions::builder("TODO")
-//!     .base_dir(".")
-//!     .max_depth(10)
+//!     .base_dirs(vec!["./src", "./tests", "./benches"])
 //!     .search_in_files(true)
-//!     .include_patterns(vec!["*.rs".into(), "*.py".into()])
+//!     .max_depth(10)
 //!     .build();
 //!
-//! let interrupted = Arc::new(AtomicBool::new(false));
-//! let results = fast_find(&opts, interrupted).unwrap();
+//! let results = fast_find(&opts, Arc::new(AtomicBool::new(false))).unwrap();
 //! ```
 //!
-//! ### Duplicate detection
+//! ## Duplicate detection — multiple directories
 //! ```no_run
-//! use fsearch::duplicates::{find_duplicates, DuplicateOptions, DuplicateMode, HashAlgorithm};
+//! use fsearch::duplicates::{find_duplicates, DuplicateOptions, DuplicateMode};
 //! use std::sync::{Arc, atomic::AtomicBool};
 //!
-//! let opts = DuplicateOptions::builder(".")
+//! // Detect cross-directory duplicates (e.g. local Photos vs NAS backup)
+//! let opts = DuplicateOptions::builder(vec!["~/Photos", "/mnt/nas/Photos"])
 //!     .max_depth(10)
 //!     .mode(DuplicateMode::Content)
-//!     .algorithm(HashAlgorithm::Sha256)
-//!     .min_size(1024) // skip files smaller than 1 KiB
+//!     .min_size(1024)
 //!     .build();
 //!
-//! let interrupted = Arc::new(AtomicBool::new(false));
-//! let (groups, summary) = find_duplicates(&opts, interrupted).unwrap();
-//! println!("Found {} duplicate groups, wasted {}", summary.groups_found, summary.wasted_human());
+//! let (groups, summary) = find_duplicates(&opts, Arc::new(AtomicBool::new(false))).unwrap();
+//! println!("{} groups, {} wasted", summary.groups_found, summary.wasted_human());
 //! ```
 
 pub mod binary;

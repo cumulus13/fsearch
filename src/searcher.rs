@@ -6,20 +6,24 @@
 
 //! Core file-search logic — exposed as a library API.
 //!
-//! Two search engines are provided:
-//! * [`fast_find`]  — walkdir + rayon (parallel, default)
+//! Two search engines:
+//! * [`fast_find`]      — walkdir + rayon (parallel, default)
 //! * [`recursive_find`] — manual DFS (deterministic order)
+//!
+//! Both accept **a slice of base directories** so callers can search
+//! multiple roots in a single call, with results de-duplicated by path.
 
 use crate::binary::is_binary;
 use crate::config::{split_csv, Config};
 use crate::error::{FsearchError, FsearchResult};
 use glob::Pattern;
 use rayon::prelude::*;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use walkdir::WalkDir;
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -58,38 +62,51 @@ impl SearchMatch {
 
 /// All parameters that control a single search operation.
 ///
-/// Build via [`SearchOptions::builder`] or construct directly.
+/// Use [`SearchOptions::builder`] for a fluent construction API, or
+/// construct directly for multi-path searches via [`SearchOptions::base_dirs`].
 #[derive(Debug, Clone)]
 pub struct SearchOptions {
-    /// Directory to start the search from.
-    pub base_dir: PathBuf,
-    /// Pattern to match (supports `*` and `?` wildcards, or plain substring).
+    /// One or more directories to search. At least one must be provided.
+    /// When multiple directories are given, results from all roots are merged
+    /// and de-duplicated.
+    pub base_dirs: Vec<PathBuf>,
+
+    /// Pattern to match (supports `*` / `?` wildcards, or plain substring).
     pub pattern: String,
-    /// Maximum recursion depth (0 = only `base_dir` itself).
+
+    /// Maximum recursion depth per directory (0 = only that directory itself).
     pub max_depth: u32,
+
     /// Include directory entries in filename-search results.
     pub include_dirs: bool,
+
     /// Match case-insensitively.
     pub case_insensitive: bool,
+
     /// Search for `pattern` inside file contents instead of matching names.
     pub search_in_files: bool,
+
     /// Only include files that match these glob patterns (empty = all).
     pub include_patterns: Vec<String>,
+
     /// Directory names to skip entirely during traversal.
     pub exclude_dirs: Vec<String>,
+
     /// Lines longer than this are skipped during content search.
     pub max_line_length: usize,
+
     /// Bytes read to probe for binary content.
     pub binary_check_bytes: usize,
-    /// Cap the number of results returned (0 = unlimited).
+
+    /// Cap the total number of results returned (0 = unlimited).
     pub max_results: usize,
 }
 
 impl SearchOptions {
-    /// Construct a minimal [`SearchOptions`] from a [`Config`] and a pattern.
-    pub fn from_config(cfg: &Config, base_dir: PathBuf, pattern: String) -> Self {
+    /// Construct from a [`Config`] with explicit directories and a pattern.
+    pub fn from_config(cfg: &Config, base_dirs: Vec<PathBuf>, pattern: String) -> Self {
         Self {
-            base_dir,
+            base_dirs,
             pattern,
             max_depth: cfg.default_depth,
             include_dirs: cfg.include_dirs,
@@ -103,7 +120,7 @@ impl SearchOptions {
         }
     }
 
-    /// Fluent builder — start from a pattern and current directory.
+    /// Fluent builder — start with a pattern.
     pub fn builder(pattern: impl Into<String>) -> SearchOptionsBuilder {
         SearchOptionsBuilder::new(pattern.into())
     }
@@ -115,7 +132,7 @@ pub struct SearchOptionsBuilder(SearchOptions);
 impl SearchOptionsBuilder {
     fn new(pattern: String) -> Self {
         Self(SearchOptions {
-            base_dir: PathBuf::from("."),
+            base_dirs: vec![PathBuf::from(".")],
             pattern,
             max_depth: 1,
             include_dirs: true,
@@ -137,10 +154,24 @@ impl SearchOptionsBuilder {
         })
     }
 
+    /// Set a single search root (replaces any previously set dirs).
     pub fn base_dir(mut self, p: impl Into<PathBuf>) -> Self {
-        self.0.base_dir = p.into();
+        self.0.base_dirs = vec![p.into()];
         self
     }
+
+    /// Set multiple search roots (replaces any previously set dirs).
+    pub fn base_dirs(mut self, dirs: Vec<impl Into<PathBuf>>) -> Self {
+        self.0.base_dirs = dirs.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Add one more search root to the existing list.
+    pub fn add_dir(mut self, p: impl Into<PathBuf>) -> Self {
+        self.0.base_dirs.push(p.into());
+        self
+    }
+
     pub fn max_depth(mut self, d: u32) -> Self {
         self.0.max_depth = d;
         self
@@ -176,8 +207,7 @@ impl SearchOptionsBuilder {
 
 // ── Pattern helpers ───────────────────────────────────────────────────────────
 
-/// Parse a comma-separated pattern string into a `Vec<String>`,
-/// optionally lower-casing each entry.
+/// Parse a comma-separated pattern string into a `Vec<String>`.
 pub fn parse_patterns(raw: &str, case_insensitive: bool) -> Vec<String> {
     raw.split(',')
         .map(|s| s.trim().to_string())
@@ -272,87 +302,150 @@ fn search_in_file(
         .collect()
 }
 
-// ── Method 1 — walkdir + rayon ────────────────────────────────────────────────
+// ── Validation ────────────────────────────────────────────────────────────────
 
-/// Search using `walkdir` + `rayon` (parallel, recommended for large trees).
+fn validate_dirs(dirs: &[PathBuf]) -> FsearchResult<()> {
+    if dirs.is_empty() {
+        return Err(FsearchError::DirectoryNotFound(
+            "(no directories specified)".into(),
+        ));
+    }
+    for d in dirs {
+        if !d.exists() {
+            return Err(FsearchError::DirectoryNotFound(d.display().to_string()));
+        }
+        if !d.is_dir() {
+            return Err(FsearchError::NotADirectory(d.display().to_string()));
+        }
+    }
+    Ok(())
+}
+
+// ── Method 1 — walkdir + rayon (parallel, multi-root) ────────────────────────
+
+/// Search using `walkdir` + `rayon` across **one or more directories**.
+///
+/// All roots are walked in parallel; results are merged and de-duplicated
+/// by canonical path before being returned.
 pub fn fast_find(
     opts: &SearchOptions,
     interrupted: Arc<AtomicBool>,
 ) -> FsearchResult<Vec<SearchMatch>> {
-    validate(opts)?;
+    validate_dirs(&opts.base_dirs)?;
 
-    let entries: Vec<_> = WalkDir::new(&opts.base_dir)
-        .max_depth(opts.max_depth as usize + 1)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|e| {
-            if e.file_type().is_dir() && e.depth() > 0 {
-                let name = e.file_name().to_string_lossy().to_string();
-                if e.depth() > 0 && is_excluded_dir(&name, &opts.exclude_dirs) {
-                    return false;
-                }
-            }
-            true
-        })
-        .filter_map(|e| e.ok())
-        .filter(|e| e.depth() > 0)
-        .collect();
+    // Seen-set is shared across all root walks to deduplicate results when
+    // multiple given dirs are subdirectories of each other.
+    let seen: Arc<Mutex<HashSet<PathBuf>>> = Arc::new(Mutex::new(HashSet::new()));
 
-    let results: Vec<SearchMatch> = entries
-        .into_par_iter()
-        .filter_map(|entry| {
+    let mut all_results: Vec<SearchMatch> = opts
+        .base_dirs
+        .par_iter()
+        .flat_map(|base| {
             if interrupted.load(Ordering::Relaxed) {
-                return None;
+                return vec![];
             }
-            let is_dir = entry.file_type().is_dir();
-            let name = entry.file_name().to_string_lossy().to_string();
-            let path = entry.path().to_path_buf();
+            let entries: Vec<_> = WalkDir::new(base)
+                .max_depth(opts.max_depth as usize + 1)
+                .follow_links(false)
+                .into_iter()
+                .filter_entry(|e| {
+                    if e.file_type().is_dir() && e.depth() > 0 {
+                        let name = e.file_name().to_string_lossy().to_string();
+                        if is_excluded_dir(&name, &opts.exclude_dirs) {
+                            return false;
+                        }
+                    }
+                    true
+                })
+                .filter_map(|e| e.ok())
+                .filter(|e| e.depth() > 0)
+                .collect();
 
-            if !is_dir && !matches_include(&name, &opts.include_patterns, opts.case_insensitive) {
-                return None;
-            }
-            if opts.search_in_files {
-                if is_dir {
-                    return None;
-                }
-                let lines = search_in_file(
-                    &path,
-                    &opts.pattern,
-                    opts.case_insensitive,
-                    opts.max_line_length,
-                    opts.binary_check_bytes,
-                );
-                if lines.is_empty() {
-                    None
-                } else {
-                    Some(SearchMatch::Content { path, lines })
-                }
-            } else {
-                if is_dir && !opts.include_dirs {
-                    return None;
-                }
-                if name_matches(&name, &opts.pattern, opts.case_insensitive) {
-                    Some(SearchMatch::Path(path))
-                } else {
-                    None
-                }
-            }
+            entries
+                .into_par_iter()
+                .filter_map(|entry| {
+                    if interrupted.load(Ordering::Relaxed) {
+                        return None;
+                    }
+
+                    let is_dir = entry.file_type().is_dir();
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    let path = entry.path().to_path_buf();
+
+                    // Deduplication across roots
+                    {
+                        let mut guard = seen.lock().unwrap();
+                        if !guard.insert(path.clone()) {
+                            return None;
+                        }
+                    }
+
+                    if !is_dir
+                        && !matches_include(&name, &opts.include_patterns, opts.case_insensitive)
+                    {
+                        return None;
+                    }
+
+                    if opts.search_in_files {
+                        if is_dir {
+                            return None;
+                        }
+                        let lines = search_in_file(
+                            &path,
+                            &opts.pattern,
+                            opts.case_insensitive,
+                            opts.max_line_length,
+                            opts.binary_check_bytes,
+                        );
+                        if lines.is_empty() {
+                            None
+                        } else {
+                            Some(SearchMatch::Content { path, lines })
+                        }
+                    } else {
+                        if is_dir && !opts.include_dirs {
+                            return None;
+                        }
+                        if name_matches(&name, &opts.pattern, opts.case_insensitive) {
+                            Some(SearchMatch::Path(path))
+                        } else {
+                            None
+                        }
+                    }
+                })
+                .collect::<Vec<_>>()
         })
         .collect();
 
-    Ok(cap(results, opts.max_results))
+    // Stable-sort by path for deterministic output across roots
+    all_results.sort_unstable_by(|a, b| a.path().cmp(b.path()));
+
+    Ok(cap(all_results, opts.max_results))
 }
 
-// ── Method 2 — manual recursive ──────────────────────────────────────────────
+// ── Method 2 — manual recursive (deterministic, multi-root) ──────────────────
 
-/// Search using a manual DFS (single-threaded, deterministic ordering).
+/// Search using a manual DFS across **one or more directories**.
+///
+/// Roots are processed sequentially; results are sorted by path and
+/// de-duplicated before returning.
 pub fn recursive_find(
     opts: &SearchOptions,
     interrupted: Arc<AtomicBool>,
 ) -> FsearchResult<Vec<SearchMatch>> {
-    validate(opts)?;
-    let mut matches = Vec::new();
-    walk_dir(&opts.base_dir, opts, 0, &mut matches, &interrupted);
+    validate_dirs(&opts.base_dirs)?;
+
+    let mut seen: HashSet<PathBuf> = HashSet::new();
+    let mut matches: Vec<SearchMatch> = Vec::new();
+
+    for base in &opts.base_dirs {
+        if interrupted.load(Ordering::Relaxed) {
+            break;
+        }
+        walk_dir(base, opts, 0, &mut matches, &mut seen, &interrupted);
+    }
+
+    matches.sort_unstable_by(|a, b| a.path().cmp(b.path()));
     Ok(cap(matches, opts.max_results))
 }
 
@@ -361,6 +454,7 @@ fn walk_dir(
     opts: &SearchOptions,
     depth: u32,
     matches: &mut Vec<SearchMatch>,
+    seen: &mut HashSet<PathBuf>,
     interrupted: &AtomicBool,
 ) {
     if depth > opts.max_depth || interrupted.load(Ordering::Relaxed) {
@@ -375,12 +469,18 @@ fn walk_dir(
         if interrupted.load(Ordering::Relaxed) {
             break;
         }
+
         let path = entry.path();
         let file_type = match entry.file_type() {
             Ok(ft) => ft,
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().to_string();
+
+        // Deduplicate
+        if !seen.insert(path.clone()) {
+            continue;
+        }
 
         if file_type.is_dir() {
             if is_excluded_dir(&name, &opts.exclude_dirs) {
@@ -392,7 +492,7 @@ fn walk_dir(
             {
                 matches.push(SearchMatch::Path(path.clone()));
             }
-            walk_dir(&path, opts, depth + 1, matches, interrupted);
+            walk_dir(&path, opts, depth + 1, matches, seen, interrupted);
         } else if file_type.is_file() {
             if !matches_include(&name, &opts.include_patterns, opts.case_insensitive) {
                 continue;
@@ -416,20 +516,6 @@ fn walk_dir(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-fn validate(opts: &SearchOptions) -> FsearchResult<()> {
-    if !opts.base_dir.exists() {
-        return Err(FsearchError::DirectoryNotFound(
-            opts.base_dir.display().to_string(),
-        ));
-    }
-    if !opts.base_dir.is_dir() {
-        return Err(FsearchError::NotADirectory(
-            opts.base_dir.display().to_string(),
-        ));
-    }
-    Ok(())
-}
 
 fn cap(mut v: Vec<SearchMatch>, limit: usize) -> Vec<SearchMatch> {
     if limit > 0 && v.len() > limit {

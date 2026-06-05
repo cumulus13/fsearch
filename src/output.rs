@@ -11,6 +11,7 @@ use crate::config::Config;
 use crate::duplicates::{DuplicateGroup, DuplicateSummary};
 use crate::searcher::SearchMatch;
 use colored::Colorize;
+use std::path::Path;
 use std::time::Duration;
 
 pub struct Printer<'a> {
@@ -22,7 +23,7 @@ impl<'a> Printer<'a> {
         Self { cfg }
     }
 
-    // ── Banner / status ───────────────────────────────────────────────────────
+    // ── Banners / status ──────────────────────────────────────────────────────
 
     pub fn print_banner(&self) {
         eprintln!(
@@ -32,18 +33,38 @@ impl<'a> Printer<'a> {
         );
     }
 
-    pub fn print_searching(&self, dir: &str, pattern: &str) {
+    pub fn print_searching(&self, dirs: &[&Path], pattern: &str) {
+        let dir_list = dirs
+            .iter()
+            .map(|d| {
+                format!(
+                    "{}",
+                    bold_hex(d.display().to_string(), &self.cfg.color_path)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(hex_color(", ", "#888888").to_string().as_str());
         eprintln!(
-            "🔍 Searching {} for {}",
-            bold_hex(dir, &self.cfg.color_path),
+            "🔍 Searching [{}] for {}",
+            dir_list,
             bold_hex(pattern, &self.cfg.color_pattern),
         );
     }
 
-    pub fn print_scanning_dups(&self, dir: &str, mode: &str, algo: &str) {
+    pub fn print_scanning_dups(&self, dirs: &[&Path], mode: &str, algo: &str) {
+        let dir_list = dirs
+            .iter()
+            .map(|d| {
+                format!(
+                    "{}",
+                    bold_hex(d.display().to_string(), &self.cfg.color_path)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(hex_color(", ", "#888888").to_string().as_str());
         eprintln!(
-            "🔎 Scanning {} for duplicates  [mode: {}  algo: {}]",
-            bold_hex(dir, &self.cfg.color_path),
+            "🔎 Scanning [{}]  [mode: {}  algo: {}]",
+            dir_list,
             bold_hex(mode, &self.cfg.color_pattern),
             bold_hex(algo, &self.cfg.color_info),
         );
@@ -148,8 +169,8 @@ impl<'a> Printer<'a> {
                 format!("{:0>w$}", idx + 1, w = zfill),
                 &self.cfg.color_dup_group,
             );
-
-            // Group header line
+            // Truncate hash for display (16 chars is enough to distinguish)
+            let hash_preview = &group.hash[..group.hash.len().min(16)];
             println!(
                 "{}. {} {}  {} {}  {} {}",
                 num,
@@ -158,7 +179,7 @@ impl<'a> Printer<'a> {
                 hex_color("wasted:", "#888888"),
                 bold_hex(group.wasted_human(), &self.cfg.color_warn),
                 hex_color("hash:", "#888888"),
-                hex_color(&group.hash[..group.hash.len().min(16)], "#666666"),
+                hex_color(hash_preview, "#666666"),
             );
 
             // Individual paths
@@ -178,9 +199,10 @@ impl<'a> Printer<'a> {
 
     fn print_dup_summary(&self, s: &DuplicateSummary) {
         println!(
-            "{}  scanned {} files  ·  {} duplicate groups  ·  {} duplicate files  ·  {} wasted",
+            "{}  scanned {} file(s) in {} dir(s)  ·  {} group(s)  ·  {} duplicate(s)  ·  {} wasted",
             bold_hex("📊 Summary:", &self.cfg.color_header),
             bold_hex(s.files_scanned.to_string(), &self.cfg.color_count),
+            bold_hex(s.dirs_scanned.to_string(), &self.cfg.color_count),
             bold_hex(s.groups_found.to_string(), &self.cfg.color_count),
             bold_hex(s.duplicate_files.to_string(), &self.cfg.color_count),
             bold_hex(s.wasted_human(), &self.cfg.color_warn),

@@ -13,7 +13,7 @@ use fsearch::config::Config;
 use fsearch::duplicates::{DuplicateMode, DuplicateOptions, HashAlgorithm};
 use fsearch::output::Printer;
 use fsearch::searcher::{fast_find, parse_patterns, recursive_find, SearchOptions};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -41,12 +41,17 @@ fn main() {
     }
 }
 
-// ── find subcommand ───────────────────────────────────────────────────────────
+// ── find ──────────────────────────────────────────────────────────────────────
 
 fn run_find(args: cli::FindArgs, cfg: &Config) {
     let printer = Printer::new(cfg);
 
-    let base_dir = PathBuf::from(args.path.as_deref().unwrap_or("."));
+    // Merge positional + flag paths, fall back to "."
+    let base_dirs: Vec<PathBuf> = args
+        .resolved_paths()
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
 
     let case_insensitive = if args.case_sensitive {
         false
@@ -74,7 +79,7 @@ fn run_find(args: cli::FindArgs, cfg: &Config) {
     }
 
     let opts = SearchOptions {
-        base_dir: base_dir.clone(),
+        base_dirs: base_dirs.clone(),
         pattern: args.pattern.clone(),
         max_depth: args.depth,
         include_dirs: !args.no_dir,
@@ -93,21 +98,21 @@ fn run_find(args: cli::FindArgs, cfg: &Config) {
 
     if args.verbose || cfg.verbose {
         printer.print_banner();
-        printer.print_searching(&base_dir.display().to_string(), &args.pattern);
+        let dir_refs: Vec<&Path> = base_dirs.iter().map(PathBuf::as_path).collect();
+        printer.print_searching(&dir_refs, &args.pattern);
         if !opts.include_patterns.is_empty() {
-            printer.print_info(&format!(
-                "Include filter: {}",
-                opts.include_patterns.join(", ")
-            ));
+            printer.print_info(&format!("Include: {}", opts.include_patterns.join(", ")));
         }
         printer.print_info(&format!(
-            "Depth: {}  |  Case-insensitive: {}  |  Content: {}",
-            args.depth, case_insensitive, args.search_in_files
+            "Dirs: {}  |  Depth: {}  |  Case-insensitive: {}  |  Content: {}",
+            base_dirs.len(),
+            args.depth,
+            case_insensitive,
+            args.search_in_files,
         ));
     }
 
     configure_rayon(cfg.threads);
-
     let interrupted = make_interrupt_flag();
     let start = Instant::now();
 
@@ -133,11 +138,16 @@ fn run_find(args: cli::FindArgs, cfg: &Config) {
     }
 }
 
-// ── dup subcommand ────────────────────────────────────────────────────────────
+// ── dup ───────────────────────────────────────────────────────────────────────
 
 fn run_dup(args: cli::DupArgs, cfg: &Config) {
     let printer = Printer::new(cfg);
-    let base_dir = PathBuf::from(&args.path);
+
+    let base_dirs: Vec<PathBuf> = args
+        .resolved_paths()
+        .into_iter()
+        .map(PathBuf::from)
+        .collect();
 
     let mode = match args.mode {
         DupMode::Content => DuplicateMode::Content,
@@ -159,7 +169,7 @@ fn run_dup(args: cli::DupArgs, cfg: &Config) {
         );
     }
 
-    let include_patterns = if !args.include.is_empty() {
+    let include_patterns: Vec<String> = if !args.include.is_empty() {
         args.include
             .split(',')
             .map(|s| s.trim().to_string())
@@ -170,7 +180,7 @@ fn run_dup(args: cli::DupArgs, cfg: &Config) {
     };
 
     let opts = DuplicateOptions {
-        base_dir: base_dir.clone(),
+        base_dirs: base_dirs.clone(),
         max_depth: args.depth,
         mode,
         algorithm,
@@ -190,15 +200,16 @@ fn run_dup(args: cli::DupArgs, cfg: &Config) {
 
     if args.verbose || cfg.verbose {
         printer.print_banner();
+        let dir_refs: Vec<&Path> = base_dirs.iter().map(PathBuf::as_path).collect();
         printer.print_scanning_dups(
-            &base_dir.display().to_string(),
-            &format!("{:?}", mode).to_lowercase(),
+            &dir_refs,
+            &format!("{mode:?}").to_lowercase(),
             algorithm.as_str(),
         );
+        printer.print_info(&format!("Dirs: {}", base_dirs.len()));
     }
 
     configure_rayon(cfg.threads);
-
     let interrupted = make_interrupt_flag();
     let start = Instant::now();
 
@@ -220,33 +231,32 @@ fn run_dup(args: cli::DupArgs, cfg: &Config) {
     }
 }
 
-// ── config subcommand ─────────────────────────────────────────────────────────
+// ── config ────────────────────────────────────────────────────────────────────
 
 fn run_config(args: cli::ConfigArgs, cfg: &Config) {
     let printer = Printer::new(cfg);
     match args.action {
         ConfigAction::Init => match Config::write_default() {
-            Ok(p) => printer.print_info(&format!("✅ Config written to: {}", p.display())),
+            Ok(p) => printer.print_info(&format!("✅ Config written: {}", p.display())),
             Err(e) => {
                 printer.print_error(&e.to_string());
                 std::process::exit(1);
             }
         },
         ConfigAction::Show => match toml::to_string_pretty(cfg) {
-            Ok(s) => println!("{}", s),
+            Ok(s) => println!("{s}"),
             Err(e) => {
                 printer.print_error(&e.to_string());
                 std::process::exit(1);
             }
         },
-        ConfigAction::Path => {
-            if let Some(dir) = dirs::config_dir() {
-                println!("{}", dir.join("fsearch").join("config.toml").display());
-            } else {
-                printer.print_error("Cannot determine user config directory");
+        ConfigAction::Path => match dirs::config_dir() {
+            Some(d) => println!("{}", d.join("fsearch").join("config.toml").display()),
+            None => {
+                printer.print_error("Cannot determine user config dir");
                 std::process::exit(1);
             }
-        }
+        },
     }
 }
 
@@ -270,7 +280,7 @@ fn make_interrupt_flag() -> Arc<AtomicBool> {
 
 fn check_interrupted(flag: &Arc<AtomicBool>, printer: &Printer<'_>) {
     if flag.load(Ordering::Relaxed) {
-        printer.print_warn("Operation interrupted by user (Ctrl-C)");
+        printer.print_warn("Operation interrupted (Ctrl-C)");
         std::process::exit(130);
     }
 }

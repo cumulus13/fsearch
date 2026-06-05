@@ -3,10 +3,14 @@
 // Date: 2026-05-11
 // Description:
 // License: MIT
+//! CLI argument definitions (clap 4).
+//!
+//! Both `find` and `dup` accept **one or more paths** — either positional
+//! arguments or repeated `-p`/`--path` flags, or a mix of both.
 
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 
-// ── Top-level command ─────────────────────────────────────────────────────────
+// ── Top-level ─────────────────────────────────────────────────────────────────
 
 #[derive(Parser, Debug)]
 #[command(
@@ -16,10 +20,10 @@ use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
     about = "⚡ Fast file search & duplicate finder",
     long_about = "⚡ fsearch — blazingly fast, cross-platform file & content search\n\n\
     Subcommands:\n\
-    \n  fsearch find   <PATTERN>   Search for files/content\
-    \n  fsearch dup    [PATH]      Find duplicate files\
-    \n  fsearch config             Config helpers\
-    \n\nRun `fsearch <SUBCOMMAND> --help` for details.",
+    \n  fsearch find  <PATTERN> [PATHS…]   Search for files / content\
+    \n  fsearch dup   [PATHS…]             Find duplicate files\
+    \n  fsearch config                     Config helpers\
+    \n\nRun `fsearch <SUBCOMMAND> --help` for full option details.",
     author = "Hadi Cahyadi <cumulus13@gmail.com>"
 )]
 pub struct Cli {
@@ -44,19 +48,34 @@ pub enum Command {
     Config(ConfigArgs),
 }
 
-// ── find args ─────────────────────────────────────────────────────────────────
+// ── find ──────────────────────────────────────────────────────────────────────
 
 #[derive(Args, Debug)]
 #[command(
     about = "🔍 Search for files by name or content",
     after_help = "EXAMPLES:\n\
-    \n  fsearch find '*.rs'               # files by glob\
-    \n  fsearch find TODO -f -i '*.py'    # content search\
-    \n  fsearch find README -C -d 5       # case-sensitive, depth 5\n"
+    \n  # Single directory (default = current dir)\
+    \n  fsearch find '*.rs'\
+    \n\n  # Multiple directories as positional args\
+    \n  fsearch find '*.rs' ./src ./tests ./benches\
+    \n\n  # Multiple directories via -p flag (repeatable)\
+    \n  fsearch find '*.rs' -p ./src -p ./tests\
+    \n\n  # Mix positional + flag\
+    \n  fsearch find TODO -f -i '*.py' ./lib -p ./scripts -d 5\
+    \n\n  # Case-sensitive, depth 5\
+    \n  fsearch find README -C -d 5\n"
 )]
 pub struct FindArgs {
     /// Pattern to search for (supports `*` and `?` wildcards)
     pub pattern: String,
+
+    /// Directories to search (positional, repeatable; default: current dir)
+    #[arg(value_name = "PATH", num_args = 0..)]
+    pub paths: Vec<String>,
+
+    /// Additional search directories (repeatable flag: -p ./src -p ./lib)
+    #[arg(short = 'p', long = "path", value_name = "PATH", action = ArgAction::Append)]
+    pub path_flags: Vec<String>,
 
     /// Search method: 1 = walkdir+rayon (fast), 2 = recursive
     #[arg(short = 'm', long, value_name = "1|2", default_value = "1")]
@@ -73,10 +92,6 @@ pub struct FindArgs {
     /// Maximum directory depth (0 = current dir only)
     #[arg(short = 'd', long = "deep", value_name = "DEPTH", default_value = "1")]
     pub depth: u32,
-
-    /// Directory to search in (default: current directory)
-    #[arg(short = 'p', long, value_name = "PATH")]
-    pub path: Option<String>,
 
     /// Exclude directories from results (files only)
     #[arg(short = 'D', long = "no-dir", action = ArgAction::SetTrue)]
@@ -103,6 +118,27 @@ pub struct FindArgs {
     pub verbose: bool,
 }
 
+impl FindArgs {
+    /// Merge positional `paths` + `-p` flags into one deduplicated list.
+    /// Falls back to `["."]` when nothing is specified.
+    pub fn resolved_paths(&self) -> Vec<String> {
+        let mut all: Vec<String> = self
+            .paths
+            .iter()
+            .chain(self.path_flags.iter())
+            .cloned()
+            .collect();
+        // deduplicate while preserving order
+        let mut seen = std::collections::HashSet::new();
+        all.retain(|p| seen.insert(p.clone()));
+        if all.is_empty() {
+            vec![".".into()]
+        } else {
+            all
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum SearchMethod {
     #[value(name = "1")]
@@ -111,23 +147,33 @@ pub enum SearchMethod {
     Recursive = 2,
 }
 
-// ── dup args ──────────────────────────────────────────────────────────────────
+// ── dup ───────────────────────────────────────────────────────────────────────
 
 #[derive(Args, Debug)]
 #[command(
     about = "🔁 Find duplicate files",
     after_help = "EXAMPLES:\n\
-    \n  fsearch dup ~/Downloads                # content duplicates\
-    \n  fsearch dup . --mode name              # same filename in different dirs\
-    \n  fsearch dup . --mode size              # same size (fast, imprecise)\
-    \n  fsearch dup . --algo md5 -d 5          # use MD5, depth 5\
-    \n  fsearch dup . -i '*.jpg,*.png'         # only images\
-    \n  fsearch dup . --min-size 1048576       # files >= 1 MiB only\n"
+    \n  # Single directory\
+    \n  fsearch dup ~/Downloads\
+    \n\n  # Multiple directories (union — dupes across all)\
+    \n  fsearch dup ~/Documents ~/Downloads ~/Desktop\
+    \n\n  # Multiple via -p flag\
+    \n  fsearch dup -p ~/Music -p /mnt/backup/Music\
+    \n\n  # Mix positional + flag\
+    \n  fsearch dup ~/Photos -p /mnt/nas/Photos\
+    \n\n  # Name mode, deep search\
+    \n  fsearch dup ./src ./vendor --mode name -d 10\
+    \n\n  # Images >= 100 KiB, MD5\
+    \n  fsearch dup ~/Photos --algo md5 -i '*.jpg,*.png' --min-size 102400\n"
 )]
 pub struct DupArgs {
-    /// Directory to scan (default: current directory)
-    #[arg(value_name = "PATH", default_value = ".")]
-    pub path: String,
+    /// Directories to scan (positional, repeatable; default: current dir)
+    #[arg(value_name = "PATH", num_args = 0..)]
+    pub paths: Vec<String>,
+
+    /// Additional scan directories (repeatable flag: -p ./dir1 -p ./dir2)
+    #[arg(short = 'p', long = "path", value_name = "PATH", action = ArgAction::Append)]
+    pub path_flags: Vec<String>,
 
     /// Detection mode
     #[arg(long, value_name = "MODE", default_value = "content")]
@@ -170,6 +216,26 @@ pub struct DupArgs {
     pub verbose: bool,
 }
 
+impl DupArgs {
+    /// Merge positional `paths` + `-p` flags into one deduplicated list.
+    /// Falls back to `["."]` when nothing is specified.
+    pub fn resolved_paths(&self) -> Vec<String> {
+        let mut all: Vec<String> = self
+            .paths
+            .iter()
+            .chain(self.path_flags.iter())
+            .cloned()
+            .collect();
+        let mut seen = std::collections::HashSet::new();
+        all.retain(|p| seen.insert(p.clone()));
+        if all.is_empty() {
+            vec![".".into()]
+        } else {
+            all
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum DupMode {
     /// Byte-for-byte identical content (uses hashing)
@@ -186,7 +252,7 @@ pub enum DupAlgo {
     Sha256,
 }
 
-// ── config args ───────────────────────────────────────────────────────────────
+// ── config ────────────────────────────────────────────────────────────────────
 
 #[derive(Args, Debug)]
 #[command(about = "⚙️  Configuration helpers")]
