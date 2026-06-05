@@ -56,6 +56,40 @@ jobs:
             archive_ext: .tar.gz
             musl: true
 
+          # ── ARMv7 (arm7l / e.g., Raspberry Pi 2/3/4 32-bit OS) ───────────────
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            asset_name: fsearch-linux-armv7
+            archive_ext: .tar.gz
+            cross: true
+
+          # ── ARMv6 (arm6l / e.g., Raspberry Pi Zero/1) ───────────────────────
+          - os: ubuntu-latest
+            target: arm-unknown-linux-gnueabihf
+            asset_name: fsearch-linux-arm
+            archive_ext: .tar.gz
+            cross: true
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            asset_name: fsearch-linux-x86_64-musl
+            archive_ext: .tar.gz
+            musl: true
+
+          # ── ARMv7 Static (Perfect for 32-bit Android/Termux/RPi) ─────────────
+          - os: ubuntu-latest
+            target: armv7-unknown-linux-musleabihf
+            asset_name: fsearch-linux-armv7-musl
+            archive_ext: .tar.gz
+            cross: true
+
+          # ── ARM64 Static (Perfect for 64-bit Android/Termux/RPi/Servers) ──────
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            asset_name: fsearch-linux-aarch64-musl
+            archive_ext: .tar.gz
+            cross: true
+
           # ── macOS ────────────────────────────────────────────────────────────
           - os: macos-latest
             target: x86_64-apple-darwin
@@ -178,6 +212,10 @@ jobs:
             |----------|---------|
             | Linux x86_64 (glibc) | `fsearch-linux-x86_64.tar.gz` |
             | Linux aarch64 (glibc) | `fsearch-linux-aarch64.tar.gz` |
+            | Linux ARMv7 (32-bit glibc) | `fsearch-linux-armv7.tar.gz` |
+            | Linux ARMv7 (32-bit musl static) | `fsearch-linux-armv7-musl.tar.gz` |
+            | Linux ARMv6 (32-bit glibc) | `fsearch-linux-arm.tar.gz` |
+            | Linux ARM64 (musl / static) | `fsearch-linux-aarch64-musl.tar.gz` |
             | Linux x86_64 (musl / static) | `fsearch-linux-x86_64-musl.tar.gz` |
             | macOS x86_64 | `fsearch-macos-x86_64.tar.gz` |
             | macOS Apple Silicon | `fsearch-macos-aarch64.tar.gz` |
