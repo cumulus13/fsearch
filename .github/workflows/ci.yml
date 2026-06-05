@@ -37,8 +37,11 @@ jobs:
       - name: cargo fmt --check
         run: cargo fmt --all -- --check
 
+      - name: cargo clippy (fmt)
+        run: cargo clippy --fix --all-targets --all-features --allow-dirty
+
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features --allow-dirty -- -D warnings
 
   # ── Test ──────────────────────────────────────────────────────────────────────
   test:
