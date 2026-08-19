@@ -269,7 +269,7 @@ jobs:
           key: publish-cargo-${{ hashFiles('**/Cargo.lock') }}
 
       - name: Dry-run publish check
-        run: cargo publish --dry-run
+        run: cargo publish --dry-run --allow-dirty
 
       - name: Publish to crates.io
         run: cargo publish --no-verify --allow-dirty

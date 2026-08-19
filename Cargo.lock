@@ -261,7 +261,7 @@ dependencies = [
 
 [[package]]
 name = "fast-search"
-version = "1.0.7"
+version = "1.0.8"
 dependencies = [
  "anyhow",
  "clap",
