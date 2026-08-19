@@ -9,6 +9,7 @@
 //! arguments or repeated `-p`/`--path` flags, or a mix of both.
 
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+use clap_color_help::default_styles;
 
 // ── Top-level ─────────────────────────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
     bin_name = "fsearch",
     version,
     about = "⚡ Fast file search & duplicate finder",
+    styles = default_styles(),
     long_about = "⚡ fsearch — blazingly fast, cross-platform file & content search\n\n\
     Subcommands:\n\
     \n  fsearch find  <PATTERN> [PATHS…]   Search for files / content\
