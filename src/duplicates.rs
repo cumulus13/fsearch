@@ -333,7 +333,8 @@ pub fn find_duplicates(
     };
 
     // Sort: most wasteful groups first
-    groups.sort_unstable_by(|a, b| b.wasted_bytes.cmp(&a.wasted_bytes));
+    // groups.sort_unstable_by(|a, b| b.wasted_bytes.cmp(&a.wasted_bytes));
+    groups.sort_unstable_by_key(|a| std::cmp::Reverse(a.wasted_bytes));
 
     if opts.max_results > 0 && groups.len() > opts.max_results {
         groups.truncate(opts.max_results);
