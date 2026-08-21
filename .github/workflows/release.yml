@@ -8,6 +8,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # Both binaries are built from the same crate (see Cargo.toml's two
+  # `[[bin]]` entries) and shipped together in every archive.
+  BIN_NAMES: "fsearch fs"
+
 
 jobs:
   # ── Verify version tag matches Cargo.toml ─────────────────────────────────────
@@ -147,9 +151,11 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          cp target/${{ matrix.target }}/release/fsearch dist/fsearch
+          for bin in ${BIN_NAMES}; do
+            cp target/${{ matrix.target }}/release/${bin} dist/${bin}
+          done
           cp README.md LICENSE fsearch.toml.example dist/
-          chmod +x dist/fsearch
+          chmod +x dist/*
           cd dist
           tar czf ../${{ matrix.asset_name }}.tar.gz .
           cd ..
@@ -161,7 +167,9 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist
-          Copy-Item "target\${{ matrix.target }}\release\fsearch.exe" dist\fsearch.exe
+          foreach ($bin in $env:BIN_NAMES -split " ") {
+            Copy-Item "target\${{ matrix.target }}\release\$bin.exe" dist\$bin.exe
+          }
           Copy-Item README.md, LICENSE, fsearch.toml.example dist\
           Compress-Archive -Path dist\* -DestinationPath "${{ matrix.asset_name }}.zip"
           $hash = (Get-FileHash "${{ matrix.asset_name }}.zip" -Algorithm SHA256).Hash.ToLower()

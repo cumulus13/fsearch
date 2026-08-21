@@ -27,6 +27,7 @@ A blazingly fast, cross-platform **library and CLI tool** for:
 | 🧵 Parallel search | Rayon thread pool (configurable thread count) |
 | 🛑 Ctrl-C clean exit | Exits with code 130 |
 | 🪟 Cross-platform | Linux · macOS · Windows |
+| 🔗 Two binaries | `fsearch` (full name) and `fs` (short alias) |
 
 ---
 
@@ -37,6 +38,8 @@ A blazingly fast, cross-platform **library and CLI tool** for:
 ```bash
 cargo install fast-search
 ```
+
+This installs both `fsearch` and `fs` binaries.
 
 ### Library dependency
 
@@ -59,13 +62,16 @@ Download from [GitHub Releases](https://github.com/cumulus13/fsearch/releases):
 | macOS Apple Silicon | `fsearch-macos-aarch64.tar.gz` |
 | Windows x86_64 | `fsearch-windows-x86_64.zip` |
 
+Each archive contains both `fsearch` and `fs` binaries.
+
 ### From source
 
 ```bash
 git clone https://github.com/cumulus13/fsearch
 cd fsearch
 cargo build --release
-# binary → ./target/release/fsearch  (or fsearch.exe on Windows)
+# binaries → ./target/release/fsearch and ./target/release/fs
+# (or fsearch.exe and fs.exe on Windows)
 ```
 
 ---
@@ -74,18 +80,24 @@ cargo build --release
 
 ```
 fsearch <SUBCOMMAND> [OPTIONS]
-
-Subcommands:
-  find    🔍 Search files by name or content
-  dup     🔁 Find duplicate files
-  config  ⚙️  Configuration helpers
+```
+or the short alias:
+```
+fs <SUBCOMMAND> [OPTIONS]
 ```
 
-### `fsearch find`
+Subcommands:
+  `find`    🔍 Search files by name or content
+  `dup`     🔁 Find duplicate files
+  `config`  ⚙️  Configuration helpers
+
+### `fsearch find` (or `fs find`)
 
 ```bash
 # Find all Rust files (depth 5)
 fsearch find '*.rs' -d 5
+# or
+fs find '*.rs' -d 5
 
 # Search file contents for "TODO" in Python/TS files
 fsearch find TODO -f -i '*.py,*.ts' -d 10
@@ -97,7 +109,7 @@ fsearch find README -C -d 3
 fsearch find config -p ~/projects -d 3 -v
 ```
 
-### `fsearch dup`
+### `fsearch dup` (or `fs dup`)
 
 ```bash
 # Content duplicates (default — exact byte match via SHA-256)
@@ -142,6 +154,8 @@ fsearch dup . --skip-binary -n 20
 ```bash
 # Find all Rust source files (depth 5)
 fsearch '*.rs' -d 5
+# or using short alias
+fs '*.rs' -d 5
 
 # Find files containing "TODO" in Python/JS/TS source
 fsearch TODO -f -i '*.py,*.js,*.ts' -d 10
@@ -165,7 +179,7 @@ fsearch --init-config
 fsearch --show-config
 ```
 
-### `fsearch config`
+### `fsearch config` (or `fs config`)
 
 ```bash
 fsearch config init    # write ~/.config/fsearch/config.toml
@@ -261,7 +275,6 @@ for group in &groups {
 
 ---
 
-
 ## ⚙️ Configuration
 
 ```bash
@@ -338,6 +351,7 @@ sudo apt install gcc-mingw-w64-x86-64
 # Uncomment the [target.x86_64-pc-windows-gnu] block in .cargo/config.toml, then:
 cargo build --release --target x86_64-pc-windows-gnu
 # → target/x86_64-pc-windows-gnu/release/fsearch.exe
+#   and target/x86_64-pc-windows-gnu/release/fs.exe
 ```
 
 Or simply push a version tag — GitHub Actions builds all platforms automatically.

@@ -1,6 +1,6 @@
 [package]
 name        = "fast-search"
-version     = "1.0.8"
+version     = "1.0.9"
 edition     = "2021"
 rust-version = "1.75"
 authors      = ["Hadi Cahyadi <cumulus13@gmail.com>"]
@@ -22,6 +22,10 @@ path = "src/lib.rs"
 # ── Binary (thin CLI wrapper) ─────────────────────────────────────────────────
 [[bin]]
 name = "fsearch"
+path = "src/main.rs"
+
+[[bin]]
+name = "fs"
 path = "src/main.rs"
 
 [dependencies]
